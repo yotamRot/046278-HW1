@@ -20,7 +20,7 @@ int randomize_images(uchar *images)
     std::default_random_engine generator;
     std::uniform_int_distribution<uint64_t> distribution(0,0xffffffffffffffffULL);
     for (uint64_t *p = (uint64_t *)images; p < (uint64_t *)(images + N_IMAGES * IMG_WIDTH * IMG_HEIGHT); ++p)
-	*p = distribution(generator);
+	*p = 255; //distribution(generator);
     return 0;
 } 
 
@@ -31,6 +31,7 @@ int main() {
     uchar *images_out_cpu; //output of CPU computation. In CPU memory.
     uchar *images_out_gpu_serial; //output of GPU task serial computation. In CPU memory.
     uchar *images_out_gpu_bulk; //output of GPU bulk computation. In CPU memory.
+    uchar *mapsDebug; //output of GPU bulk computation. In CPU memory.
     int devices;
     CUDA_CHECK( cudaGetDeviceCount(&devices) );
     printf("Number of devices: %d\n", devices);
@@ -39,6 +40,9 @@ int main() {
     CUDA_CHECK( cudaHostAlloc(&images_out_cpu, N_IMAGES * IMG_HEIGHT * IMG_WIDTH, 0) );
     CUDA_CHECK( cudaHostAlloc(&images_out_gpu_serial, N_IMAGES * IMG_HEIGHT * IMG_WIDTH, 0) );
     CUDA_CHECK( cudaHostAlloc(&images_out_gpu_bulk, N_IMAGES * IMG_HEIGHT * IMG_WIDTH, 0) );
+
+    // CUDA_CHECK(cudaHostAlloc(&mapsDebug, N_IMAGES * TILE_COUNT * TILE_COUNT), 0);
+
 
     double t_start, t_finish;
 

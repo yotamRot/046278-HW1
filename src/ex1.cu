@@ -35,37 +35,40 @@ __global__ void process_image_kernel(uchar *all_in, uchar *all_out, uchar *maps)
     int ti = threadIdx.x;
     int tg = ti / TILE_WIDTH;
     int workForThread = (TILE_WIDTH * TILE_WIDTH) / NUM_OF_THREADS; // in bytes
-    char imageVal;
+    uchar imageVal;
 
     __shared__ int sharedHist[HISTOGRAM_SIZE]; // maybe change to 16 bit ? will be confilcits on same bank 
 
     // zero historgram
-    sharedHist[ti] = 0;
 
     int tileStartIndex;
     int insideTileIndex;
     int curIndex;
-
     for (int i = 0 ; i < TILE_COUNT * TILE_COUNT; i++)
     {
         tileStartIndex = i % 8 * TILE_WIDTH + (i / 8) * (TILE_WIDTH *TILE_WIDTH) * TILE_COUNT;
-        for (int j = 0; j < workForThread; j++)
-        {
-            insideTileIndex = tg * TILE_WIDTH * TILE_COUNT + ti % 64 + 4 * TILE_WIDTH * TILE_COUNT * j;
-            curIndex = tileStartIndex + insideTileIndex;
-            imageVal = all_in[curIndex];
-            atomicAdd(&sharedHist[imageVal], 1);
-        }
+        sharedHist[ti] = 0;
+        __syncthreads();
+        // for (int j = 0; j < workForThread; j++)
+        // {
+        //     insideTileIndex = tg * TILE_WIDTH * TILE_COUNT + ti % 64 + 4 * TILE_WIDTH * TILE_COUNT * j;
+        //     curIndex = tileStartIndex + insideTileIndex;
+        //     imageVal = all_in[curIndex];
+        //     atomicAdd(sharedHist + imageVal, 1);
+        // }
+        __syncthreads();
+        sharedHist[255] = 4096;
+        // prefix_sum(sharedHist, HISTOGRAM_SIZE);
+        __syncthreads();
+        // calc Map
+        maps[HISTOGRAM_SIZE * i + ti] = (float(sharedHist[ti]) * 255)  / (TILE_WIDTH * TILE_WIDTH);
     }
     // calc CDF
-    prefix_sum(sharedHist, HISTOGRAM_SIZE);
-    // calc Map
-    maps[ti] = sharedHist[ti] * (1 / (TILE_WIDTH * TILE_WIDTH)) * 256;
-
+    __syncthreads();
     interpolate_device(maps, all_in, all_out);
     return; 
 }
-
+//5647265614019 5647265614019
 /* Task serial context struct with necessary CPU / GPU pointers to process a single image */
 struct task_serial_context {
     uchar *taskMaps;
@@ -82,9 +85,9 @@ struct task_serial_context *task_serial_init()
     auto context = new task_serial_context;
 
     //TODO: allocate GPU memory for a single input image, a single output image, and maps
-    cudaMalloc((void**)&context->taskMaps, N_IMAGES * TILE_COUNT * TILE_COUNT);
-    cudaMalloc((void**)&context->imgIn, N_IMAGES * IMG_WIDTH * IMG_WIDTH);
-    cudaMalloc((void**)&context->imgOut, N_IMAGES * IMG_WIDTH * IMG_WIDTH);
+    CUDA_CHECK(cudaMalloc((void**)&context->taskMaps, N_IMAGES * TILE_COUNT * TILE_COUNT));
+    CUDA_CHECK(cudaMalloc((void**)&context->imgIn, N_IMAGES * IMG_WIDTH * IMG_WIDTH));
+    CUDA_CHECK(cudaMalloc((void**)&context->imgOut, N_IMAGES * IMG_WIDTH * IMG_WIDTH));
 
     return context;
 }
@@ -97,10 +100,17 @@ void task_serial_process(struct task_serial_context *context, uchar *images_in, 
     //   1. copy the relevant image from images_in to the GPU memory you allocated
     //   2. invoke GPU kernel on this image
     //   3. copy output from GPU memory to relevant location in images_out_gpu_serial
-    for (int i = 0; i < N_IMAGES; i++) {
-        cudaMemcpy((void*)context[i].imgIn, &images_in[i * IMG_WIDTH * IMG_HEIGHT],IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyHostToDevice);
-        process_image_kernel<<<1, NUM_OF_THREADS>>>(context[i].imgIn, context[i].imgOut, context[i].taskMaps);
-        cudaMemcpy(context[i].imgIn, &images_out[i * IMG_WIDTH * IMG_HEIGHT], IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyDeviceToHost);
+    int imageIndex;
+    int mapIndex;
+
+    for (int i = 0; i < 1; i++) {
+        imageIndex = i * IMG_WIDTH * IMG_HEIGHT;
+        mapIndex = i * TILE_COUNT * TILE_COUNT;
+
+        CUDA_CHECK(cudaMemcpy((void*)&context->imgIn[imageIndex], (void*)&images_in[imageIndex], IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyHostToDevice));
+        process_image_kernel<<<1, NUM_OF_THREADS>>>(&context->imgIn[imageIndex], &context->imgOut[imageIndex], &context->taskMaps[mapIndex]);
+        CUDA_CHECK(cudaDeviceSynchronize());
+        CUDA_CHECK(cudaMemcpy((void*)&images_out[imageIndex], (void*)&context->imgOut[imageIndex], IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyDeviceToHost));
     }
 }
 
@@ -108,9 +118,9 @@ void task_serial_process(struct task_serial_context *context, uchar *images_in, 
 void task_serial_free(struct task_serial_context *context)
 {
     //TODO: free resources allocated in task_serial_init
-    cudaFree(context->imgOut);
-    cudaFree(context->imgIn);
-    cudaFree(context->taskMaps);
+    CUDA_CHECK(cudaFree(context->imgOut));
+    CUDA_CHECK(cudaFree(context->imgIn));
+    CUDA_CHECK(cudaFree(context->taskMaps));
 }
 
 /* Bulk GPU context struct with necessary CPU / GPU pointers to process all the images */
