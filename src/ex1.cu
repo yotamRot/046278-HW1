@@ -1,6 +1,8 @@
 #include "ex1.h"
 
 #define HISTOGRAM_SIZE 256
+#define NUM_OF_THREADS 256
+#define WRAP_SIZE 32
 
 __device__ void prefix_sum(int arr[], int arr_size) {
     int tid = threadIdx.x % HISTOGRAM_SIZE;
@@ -29,42 +31,38 @@ __device__
 void interpolate_device(uchar* maps ,uchar *in_img, uchar* out_img);
 
 __global__ void process_image_kernel(uchar *all_in, uchar *all_out, uchar *maps) {
-    // TODO
 
     int ti = threadIdx.x;
-    int tG = ti / 32;
+    int tg = ti / TILE_WIDTH;
+    int workForThread = (TILE_WIDTH * TILE_WIDTH) / NUM_OF_THREADS; // in bytes
     char imageVal;
 
-    __shared__ int sharedHist[HISTOGRAM_SIZE * TILE_COUNT];
+    __shared__ int sharedHist[HISTOGRAM_SIZE]; // maybe change to 16 bit ? will be confilcits on same bank 
 
-    //to do zero hist
-    int startIndex = tG * 2 * TILE_WIDTH + sizeof(int) * ti % 32;
-    int histogramIndex = tG % (TILE_COUNT * TILE_COUNT) * 2 + (ti % 32 > 16) * 1;
+    // zero historgram
+    sharedHist[ti] = 0;
 
-    // block of 32 threads each reponsibole for 2 histograms
-    int *myHist = &sharedHist[histogramIndex];
+    int tileStartIndex;
+    int insideTileIndex;
+    int curIndex;
 
-
-    for (int j = 0 ; j < 3; j ++)
+    for (int i = 0 ; i < TILE_COUNT * TILE_COUNT; i++)
     {
-        startIndex += j;
-        imageVal = all_in[startIndex];
-        atomicAdd(&myHist[imageVal], 1);
+        tileStartIndex = i % 8 * TILE_WIDTH + (i / 8) * (TILE_WIDTH *TILE_WIDTH) * TILE_COUNT;
+        for (int j = 0; j < workForThread; j++)
+        {
+            insideTileIndex = tg * TILE_WIDTH * TILE_COUNT + ti % 64 + 4 * TILE_WIDTH * TILE_COUNT * j;
+            curIndex = tileStartIndex + insideTileIndex;
+            imageVal = all_in[curIndex];
+            atomicAdd(&sharedHist[imageVal], 1);
+        }
     }
+    // calc CDF
+    prefix_sum(sharedHist, HISTOGRAM_SIZE);
+    // calc Map
+    maps[ti] = sharedHist[ti] * (1 / (TILE_WIDTH * TILE_WIDTH)) * 256;
 
-    int histogramsPerIteration = (1024 / HISTOGRAM_SIZE);
-    int numOfIterations = (TILE_COUNT * TILE_COUNT) / histogramsPerIteration;
-    int prefixHistogramIndex = (ti / HISTOGRAM_SIZE) * HISTOGRAM_SIZE;
-    int mapIndex = prefixHistogramIndex + ti % HISTOGRAM_SIZE;
-    // each iteration we create 4 histograms so we have 16 iterations
-    for (int j = 0 ; j < numOfIterations; j++)
-    {
-        prefixHistogramIndex += j * HISTOGRAM_SIZE * 4;
-        prefix_sum(&sharedHist[prefixHistogramIndex], HISTOGRAM_SIZE);
-        maps[mapIndex] = sharedHist[mapIndex] * (1 / (TILE_WIDTH * TILE_WIDTH)) * 256;
-    }
-
-    interpolate_device(all_in, all_out, maps);
+    interpolate_device(maps, all_in, all_out);
     return; 
 }
 
@@ -101,7 +99,7 @@ void task_serial_process(struct task_serial_context *context, uchar *images_in, 
     //   3. copy output from GPU memory to relevant location in images_out_gpu_serial
     for (int i = 0; i < N_IMAGES; i++) {
         cudaMemcpy((void*)context[i].imgIn, &images_in[i * IMG_WIDTH * IMG_HEIGHT],IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyHostToDevice);
-        process_image_kernel<<<1, 1024>>>(context[i].imgIn, context[i].imgOut, context[i].taskMaps);
+        process_image_kernel<<<1, NUM_OF_THREADS>>>(context[i].imgIn, context[i].imgOut, context[i].taskMaps);
         cudaMemcpy(context[i].imgIn, &images_out[i * IMG_WIDTH * IMG_HEIGHT], IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyDeviceToHost);
     }
 }
@@ -110,8 +108,9 @@ void task_serial_process(struct task_serial_context *context, uchar *images_in, 
 void task_serial_free(struct task_serial_context *context)
 {
     //TODO: free resources allocated in task_serial_init
-
-    free(context);
+    cudaFree(context->imgOut);
+    cudaFree(context->imgIn);
+    cudaFree(context->taskMaps);
 }
 
 /* Bulk GPU context struct with necessary CPU / GPU pointers to process all the images */
