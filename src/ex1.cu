@@ -34,19 +34,20 @@ __global__ void process_image_kernel(uchar *all_in, uchar *all_out, uchar *maps)
 
     int ti = threadIdx.x;
     int tg = ti / TILE_WIDTH;
+    int bi = blockIdx.x; 
     int workForThread = (TILE_WIDTH * TILE_WIDTH) / NUM_OF_THREADS; // in bytes
     uchar imageVal;
 
     __shared__ int sharedHist[HISTOGRAM_SIZE]; // maybe change to 16 bit ? will be confilcits on same bank 
 
-
+    int imageStartIndex = bi* IMG_HEIGHT * IMG_WIDTH;
     int tileStartIndex;
     int insideTileIndex;
     int curIndex;
     for (int i = 0 ; i < TILE_COUNT * TILE_COUNT; i++)
     {
         // calc tile index in image buffer (shared between al threads in block)
-        tileStartIndex = i % 8 * TILE_WIDTH + (i / 8) * (TILE_WIDTH *TILE_WIDTH) * TILE_COUNT;
+        tileStartIndex = imageStartIndex + i % 8 * TILE_WIDTH + (i / 8) * (TILE_WIDTH *TILE_WIDTH) * TILE_COUNT;
         // zero shared buffer histogram values
         sharedHist[ti] = 0;
         __syncthreads();
@@ -71,10 +72,11 @@ __global__ void process_image_kernel(uchar *all_in, uchar *all_out, uchar *maps)
     
     }
     __syncthreads();
+    // interpolate image using given maps buffer
     interpolate_device(maps, all_in, all_out);
     return; 
 }
-//5647265614019 5647265614019
+
 /* Task serial context struct with necessary CPU / GPU pointers to process a single image */
 struct task_serial_context {
     uchar *taskMaps;
@@ -92,8 +94,8 @@ struct task_serial_context *task_serial_init()
 
     //TODO: allocate GPU memory for a single input image, a single output image, and maps
     CUDA_CHECK(cudaMalloc((void**)&context->taskMaps, TILE_COUNT * TILE_COUNT * HISTOGRAM_SIZE));
-    CUDA_CHECK(cudaMalloc((void**)&context->imgIn, IMG_WIDTH * IMG_WIDTH));
-    CUDA_CHECK(cudaMalloc((void**)&context->imgOut, IMG_WIDTH * IMG_WIDTH));
+    CUDA_CHECK(cudaMalloc((void**)&context->imgIn, IMG_WIDTH * IMG_HEIGHT));
+    CUDA_CHECK(cudaMalloc((void**)&context->imgOut, IMG_WIDTH * IMG_HEIGHT));
 
     return context;
 }
@@ -107,11 +109,9 @@ void task_serial_process(struct task_serial_context *context, uchar *images_in, 
     //   2. invoke GPU kernel on this image
     //   3. copy output from GPU memory to relevant location in images_out_gpu_serial
     int imageIndex;
-    int mapIndex;
 
     for (int i = 0; i < N_IMAGES; i++) {
         imageIndex = i * IMG_WIDTH * IMG_HEIGHT;
-        mapIndex = i * TILE_COUNT * TILE_COUNT;
 
         CUDA_CHECK(cudaMemcpy((void*)context->imgIn, (void*)&images_in[imageIndex], IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyHostToDevice));
         process_image_kernel<<<1, NUM_OF_THREADS>>>(context->imgIn, context->imgOut, context->taskMaps);
@@ -146,8 +146,8 @@ struct gpu_bulk_context *gpu_bulk_init()
 
     //TODO: allocate GPU memory for all the input images, output images, and maps
     CUDA_CHECK(cudaMalloc((void**)&context->taskMaps, N_IMAGES * TILE_COUNT * TILE_COUNT * HISTOGRAM_SIZE));
-    CUDA_CHECK(cudaMalloc((void**)&context->imgIn, N_IMAGES * IMG_WIDTH * IMG_WIDTH));
-    CUDA_CHECK(cudaMalloc((void**)&context->imgOut, N_IMAGES * IMG_WIDTH * IMG_WIDTH));
+    CUDA_CHECK(cudaMalloc((void**)&context->imgIn, N_IMAGES * IMG_HEIGHT * IMG_WIDTH));
+    CUDA_CHECK(cudaMalloc((void**)&context->imgOut, N_IMAGES * IMG_WIDTH * IMG_HEIGHT));
 
 
     return context;
@@ -160,9 +160,9 @@ void gpu_bulk_process(struct gpu_bulk_context *context, uchar *images_in, uchar 
     //TODO: copy all input images from images_in to the GPU memory you allocated
     //TODO: invoke a kernel with N_IMAGES threadblocks, each working on a different image
     //TODO: copy output images from GPU memory to images_out
-    CUDA_CHECK(cudaMemcpy((void*)context->imgIn, (void*)&images_in, N_IMAGES * IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyHostToDevice));
+
+    CUDA_CHECK(cudaMemcpy((void*)context->imgIn, (void*)images_in, N_IMAGES * IMG_HEIGHT * IMG_WIDTH, cudaMemcpyHostToDevice));
     process_image_kernel<<<N_IMAGES , NUM_OF_THREADS>>>(context->imgIn, context->imgOut, context->taskMaps);
-    CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaMemcpy((void*)images_out, (void*)context->imgOut, N_IMAGES *  IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyDeviceToHost));
 }
 
