@@ -40,7 +40,8 @@ __global__ void process_image_kernel(uchar *all_in, uchar *all_out, uchar *maps)
 
     __shared__ int sharedHist[HISTOGRAM_SIZE]; // maybe change to 16 bit ? will be confilcits on same bank 
 
-    int imageStartIndex = bi* IMG_HEIGHT * IMG_WIDTH;
+    int imageStartIndex = bi * IMG_HEIGHT * IMG_WIDTH;
+    int mapStartIndex = bi * TILE_COUNT * TILE_COUNT * HISTOGRAM_SIZE;
     int tileStartIndex;
     int insideTileIndex;
     int curIndex;
@@ -63,17 +64,17 @@ __global__ void process_image_kernel(uchar *all_in, uchar *all_out, uchar *maps)
         }
         __syncthreads();
         
-        // calc CDF using prefix sum on histogram buffer
+        // calc CDF using prefix sumpwdon histogram buffer
         prefix_sum(sharedHist, HISTOGRAM_SIZE);
         __syncthreads();
         // calc map value for each index
-        maps[HISTOGRAM_SIZE * i + ti] = (float(sharedHist[ti]) * 255)  / (TILE_WIDTH * TILE_WIDTH);
+        maps[mapStartIndex + HISTOGRAM_SIZE * i + ti] = (float(sharedHist[ti]) * 255)  / (TILE_WIDTH * TILE_WIDTH);
         __syncthreads();
     
     }
     __syncthreads();
     // interpolate image using given maps buffer
-    interpolate_device(maps, all_in, all_out);
+    interpolate_device(maps + mapStartIndex, all_in + imageStartIndex, all_out + imageStartIndex);
     return; 
 }
 
@@ -112,7 +113,6 @@ void task_serial_process(struct task_serial_context *context, uchar *images_in, 
 
     for (int i = 0; i < N_IMAGES; i++) {
         imageIndex = i * IMG_WIDTH * IMG_HEIGHT;
-
         CUDA_CHECK(cudaMemcpy((void*)context->imgIn, (void*)&images_in[imageIndex], IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyHostToDevice));
         process_image_kernel<<<1, NUM_OF_THREADS>>>(context->imgIn, context->imgOut, context->taskMaps);
         CUDA_CHECK(cudaMemcpy((void*)&images_out[imageIndex], (void*)context->imgOut, IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyDeviceToHost));
