@@ -39,7 +39,6 @@ __global__ void process_image_kernel(uchar *all_in, uchar *all_out, uchar *maps)
 
     __shared__ int sharedHist[HISTOGRAM_SIZE]; // maybe change to 16 bit ? will be confilcits on same bank 
 
-    // zero historgram
 
     int tileStartIndex;
     int insideTileIndex;
@@ -47,6 +46,7 @@ __global__ void process_image_kernel(uchar *all_in, uchar *all_out, uchar *maps)
     for (int i = 0 ; i < TILE_COUNT * TILE_COUNT; i++)
     {
         tileStartIndex = i % 8 * TILE_WIDTH + (i / 8) * (TILE_WIDTH *TILE_WIDTH) * TILE_COUNT;
+        // zero historgram
         sharedHist[ti] = 0;
         __syncthreads();
         // for (int j = 0; j < workForThread; j++)
@@ -58,12 +58,23 @@ __global__ void process_image_kernel(uchar *all_in, uchar *all_out, uchar *maps)
         // }
         __syncthreads();
         sharedHist[255] = 4096;
+        
+        // calc CDF
         // prefix_sum(sharedHist, HISTOGRAM_SIZE);
         __syncthreads();
         // calc Map
-        maps[HISTOGRAM_SIZE * i + ti] = (float(sharedHist[ti]) * 255)  / (TILE_WIDTH * TILE_WIDTH);
+        maps[HISTOGRAM_SIZE * i + ti] = 0;//(float(sharedHist[ti]) * 255)  / (TILE_WIDTH * TILE_WIDTH);
+        __syncthreads();
+        if(ti == 0)
+        {
+            for(int j=0; j<HISTOGRAM_SIZE;j++)
+            {
+                maps[HISTOGRAM_SIZE * i  + j] = 0;
+            }
+            maps[HISTOGRAM_SIZE * i  + 255] = 255;
+        }
+    
     }
-    // calc CDF
     __syncthreads();
     interpolate_device(maps, all_in, all_out);
     return; 
@@ -85,9 +96,9 @@ struct task_serial_context *task_serial_init()
     auto context = new task_serial_context;
 
     //TODO: allocate GPU memory for a single input image, a single output image, and maps
-    CUDA_CHECK(cudaMalloc((void**)&context->taskMaps, N_IMAGES * TILE_COUNT * TILE_COUNT));
-    CUDA_CHECK(cudaMalloc((void**)&context->imgIn, N_IMAGES * IMG_WIDTH * IMG_WIDTH));
-    CUDA_CHECK(cudaMalloc((void**)&context->imgOut, N_IMAGES * IMG_WIDTH * IMG_WIDTH));
+    CUDA_CHECK(cudaMalloc((void**)&context->taskMaps, TILE_COUNT * TILE_COUNT * HISTOGRAM_SIZE));
+    CUDA_CHECK(cudaMalloc((void**)&context->imgIn, IMG_WIDTH * IMG_WIDTH));
+    CUDA_CHECK(cudaMalloc((void**)&context->imgOut, IMG_WIDTH * IMG_WIDTH));
 
     return context;
 }
@@ -107,10 +118,10 @@ void task_serial_process(struct task_serial_context *context, uchar *images_in, 
         imageIndex = i * IMG_WIDTH * IMG_HEIGHT;
         mapIndex = i * TILE_COUNT * TILE_COUNT;
 
-        CUDA_CHECK(cudaMemcpy((void*)&context->imgIn[imageIndex], (void*)&images_in[imageIndex], IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyHostToDevice));
-        process_image_kernel<<<1, NUM_OF_THREADS>>>(&context->imgIn[imageIndex], &context->imgOut[imageIndex], &context->taskMaps[mapIndex]);
+        CUDA_CHECK(cudaMemcpy((void*)context->imgIn, (void*)&images_in[imageIndex], IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyHostToDevice));
+        process_image_kernel<<<1, NUM_OF_THREADS>>>(context->imgIn, context->imgOut, context->taskMaps);
         CUDA_CHECK(cudaDeviceSynchronize());
-        CUDA_CHECK(cudaMemcpy((void*)&images_out[imageIndex], (void*)&context->imgOut[imageIndex], IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy((void*)&images_out[imageIndex], (void*)context->imgOut, IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyDeviceToHost));
     }
 }
 

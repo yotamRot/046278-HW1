@@ -13,7 +13,7 @@
 #define TILE_WIDTH 64
 #define TILE_HALF_WIDTH (TILE_WIDTH / 2)
 #define TILE_COUNT (IMG_WIDTH / TILE_WIDTH) // 8
-#define N_IMAGES 1000
+#define N_IMAGES 1
 
 
 typedef unsigned char uchar;

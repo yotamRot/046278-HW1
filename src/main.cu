@@ -9,7 +9,7 @@
 
 long long int distance_sqr_between_image_arrays(uchar *img_arr1, uchar *img_arr2) {
     long long int distance_sqr = 0;
-    for (int i = 0; i < N_IMAGES * IMG_WIDTH * IMG_HEIGHT; i++) {
+    for (int i = 0; i <  4; i++) {
         distance_sqr += SQR(img_arr1[i] - img_arr2[i]);
     }
     return distance_sqr;
@@ -20,7 +20,7 @@ int randomize_images(uchar *images)
     std::default_random_engine generator;
     std::uniform_int_distribution<uint64_t> distribution(0,0xffffffffffffffffULL);
     for (uint64_t *p = (uint64_t *)images; p < (uint64_t *)(images + N_IMAGES * IMG_WIDTH * IMG_HEIGHT); ++p)
-	*p = 255; //distribution(generator);
+	*p = distribution(generator);
     return 0;
 } 
 
