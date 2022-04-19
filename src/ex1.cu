@@ -115,7 +115,6 @@ void task_serial_process(struct task_serial_context *context, uchar *images_in, 
 
         CUDA_CHECK(cudaMemcpy((void*)context->imgIn, (void*)&images_in[imageIndex], IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyHostToDevice));
         process_image_kernel<<<1, NUM_OF_THREADS>>>(context->imgIn, context->imgOut, context->taskMaps);
-        CUDA_CHECK(cudaDeviceSynchronize());
         CUDA_CHECK(cudaMemcpy((void*)&images_out[imageIndex], (void*)context->imgOut, IMG_WIDTH * IMG_HEIGHT * sizeof(char), cudaMemcpyDeviceToHost));
     }
 }
