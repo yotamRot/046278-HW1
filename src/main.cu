@@ -9,7 +9,7 @@
 
 long long int distance_sqr_between_image_arrays(uchar *img_arr1, uchar *img_arr2) {
     long long int distance_sqr = 0;
-    for (int i = 0; i <  4; i++) {
+    for (int i = 0; i < N_IMAGES * IMG_WIDTH * IMG_HEIGHT; i++) {
         distance_sqr += SQR(img_arr1[i] - img_arr2[i]);
     }
     return distance_sqr;
@@ -31,7 +31,6 @@ int main() {
     uchar *images_out_cpu; //output of CPU computation. In CPU memory.
     uchar *images_out_gpu_serial; //output of GPU task serial computation. In CPU memory.
     uchar *images_out_gpu_bulk; //output of GPU bulk computation. In CPU memory.
-    uchar *mapsDebug; //output of GPU bulk computation. In CPU memory.
     int devices;
     CUDA_CHECK( cudaGetDeviceCount(&devices) );
     printf("Number of devices: %d\n", devices);
@@ -40,9 +39,6 @@ int main() {
     CUDA_CHECK( cudaHostAlloc(&images_out_cpu, N_IMAGES * IMG_HEIGHT * IMG_WIDTH, 0) );
     CUDA_CHECK( cudaHostAlloc(&images_out_gpu_serial, N_IMAGES * IMG_HEIGHT * IMG_WIDTH, 0) );
     CUDA_CHECK( cudaHostAlloc(&images_out_gpu_bulk, N_IMAGES * IMG_HEIGHT * IMG_WIDTH, 0) );
-
-    // CUDA_CHECK(cudaHostAlloc(&mapsDebug, N_IMAGES * TILE_COUNT * TILE_COUNT), 0);
-
 
     double t_start, t_finish;
 

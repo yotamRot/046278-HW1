@@ -67,7 +67,6 @@ void cpu_process(uchar *img_in, uchar *img_out, int width, int height) {
             for (int y=top; y<=bottom; y++) {
                 for (int x=left; x<=right; x++) {
                     uchar* row = img_in + y*width;
-                    // printf("image val - %d\n", row[x]);
                     histogram[row[x]]++;
                 }
             }
@@ -77,14 +76,11 @@ void cpu_process(uchar *img_in, uchar *img_out, int width, int height) {
             for (int k = 0; k < 256; k++) {
                 hist_sum += histogram[k];
                 cdf[k] = hist_sum;
-                // printf("index -%d val -%d\n",k, hist_sum);
             }
 
             uchar* map = maps[i][j];
             for (int k = 0; k < 256; k++) {
                 map[k] = (float(cdf[k]) * 255) / (tile_size);
-                // printf("val -%d\n",map[k]);
-
             }
 
         }
