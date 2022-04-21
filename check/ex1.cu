@@ -168,7 +168,7 @@ void gpu_bulk_process(struct gpu_bulk_context *context, uchar *images_in, uchar 
 /* Release allocated resources for the bulk GPU implementation. */
 void gpu_bulk_free(struct gpu_bulk_context *context)
 {
-    //TODO: free resources allocated in gpu_bulk_init
+    // //TODO: free resources allocated in gpu_bulk_init
     CUDA_CHECK(cudaFree(context->imgOut));
     CUDA_CHECK(cudaFree(context->imgIn));
     CUDA_CHECK(cudaFree(context->taskMaps));
