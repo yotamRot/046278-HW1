@@ -69,10 +69,9 @@ __global__ void process_image_kernel(uchar *all_in, uchar *all_out, uchar *maps)
         __syncthreads();
         // calc map value for each index
         maps[mapStartIndex + HISTOGRAM_SIZE * i + ti] = (float(sharedHist[ti]) * 255)  / (TILE_WIDTH * TILE_WIDTH);
-        __syncthreads();
-    
     }
 
+    __syncthreads();
     // interpolate image using given maps buffer
     interpolate_device(maps + mapStartIndex, all_in + imageStartIndex, all_out + imageStartIndex);
     return; 
